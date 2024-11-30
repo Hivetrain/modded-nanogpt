@@ -231,82 +231,91 @@ class Block(nn.Module):
 # -----------------------------------------------------------------------------
 # The main GPT-2 model
 
-def evolved_loss(x, y):
+def evolved_loss(x, y, chunk_size=1024):
     zero = torch.tensor(0.0, device=x.device)
     one = torch.tensor(1.0, device=x.device)
     half = torch.tensor(0.5, device=x.device)
     
-    # Breaking down the expression into the same order of operations
-    inner_sigmoid = torch.mul(torch.mul(half, x), torch.mul(torch.exp(torch.sin(half)), x))
-    log_y_sub = torch.subtract(torch.log(y), torch.sigmoid(inner_sigmoid))
-    exp_zero_sub = torch.subtract(torch.exp(zero), log_y_sub)
+    total_size = x.size(0)
+    losses = []
     
-    inner_cos = torch.subtract(torch.log(y), torch.div(x, torch.exp(torch.sin(half))))
-    log_y_sub2 = torch.subtract(torch.log(y), torch.cos(inner_cos))
-    log_y_sub3 = torch.subtract(torch.log(y), log_y_sub2)
+    for i in range(0, total_size, chunk_size):
+        chunk_x = x[i:i+chunk_size]
+        chunk_y = y[i:i+chunk_size]
+        
+        # Original computation but on chunks
+        inner_sigmoid = torch.mul(torch.mul(half, chunk_x), torch.mul(torch.exp(torch.sin(half)), chunk_x))    
+        log_y_sub = torch.subtract(torch.log(y), torch.sigmoid(inner_sigmoid))
+        exp_zero_sub = torch.subtract(torch.exp(zero), log_y_sub)
+        
+        inner_cos = torch.subtract(torch.log(y), torch.div(x, torch.exp(torch.sin(half))))
+        log_y_sub2 = torch.subtract(torch.log(y), torch.cos(inner_cos))
+        log_y_sub3 = torch.subtract(torch.log(y), log_y_sub2)
+        
+        std_input = torch.subtract(torch.subtract(exp_zero_sub, log_y_sub3), zero)
+        relu_std = torch.relu(torch.std(std_input))
+        
+        exp_half_mul = torch.mul(torch.div(half, one), torch.exp(half))
+        exp_div = torch.div(exp_half_mul, one)
+        exp_add = torch.add(torch.exp(exp_div), relu_std)
+        exp_sub = torch.subtract(exp_add, torch.exp(torch.exp(one)))
+        
+        # Second part
+        inner_sigmoid2 = torch.mul(torch.mul(half, x), torch.mul(torch.mul(torch.add(y, one), torch.log(y)), x))
+        log_y_sub4 = torch.subtract(torch.log(y), torch.sigmoid(inner_sigmoid2))
+        x_sub = torch.subtract(x, log_y_sub4)
+        
+        inner_cos2 = torch.subtract(torch.log(y), torch.div(x, torch.exp(torch.sin(half))))
+        log_y_sub5 = torch.subtract(torch.log(y), torch.cos(inner_cos2))
+        log_y_sub6 = torch.subtract(torch.log(y), log_y_sub5)
+        
+        std_input2 = torch.subtract(torch.subtract(x_sub, log_y_sub6), zero)
+        tanh_std = torch.tanh(torch.std(std_input2))
+        
+        cube_exp = torch.exp(torch.sin(half))
+        cube_cube = torch.pow(torch.pow(cube_exp, 3), 3)
+        square_cube = torch.pow(cube_cube, 2)
+        
+        exp_half_mul2 = torch.mul(torch.div(half, one), torch.exp(half))
+        exp_div2 = torch.div(exp_half_mul2, one)
+        exp_add2 = torch.add(torch.exp(exp_div2), square_cube)
+        
+        square_cube2 = torch.pow(torch.pow(torch.exp(torch.sin(half)), 3), 2)
+        one_add = torch.add(one, square_cube2)
+        
+        mul_result = torch.mul(exp_add2, one_add)
+        log_mul = torch.log(mul_result)
+        log_add = torch.add(log_mul, tanh_std)
+        sub_one = torch.subtract(log_add, one)
+        
+        # Final parts
+        cube_half = torch.pow(torch.pow(half, 3), 3)
+        square_cube_half = torch.pow(cube_half, 2)
+        one_add2 = torch.add(one, square_cube_half)
+        
+        mul_chain = torch.mul(y, one_add2)
+        mul_chain = torch.mul(mul_chain, one_add2)
+        mul_chain = torch.mul(mul_chain, half)
+        half_mul = torch.mul(half, mul_chain)
+        
+        half_half = torch.mul(half, half)
+        
+        # Final subtractions
+        result = torch.subtract(
+            torch.subtract(
+                torch.add(
+                    torch.exp(
+                        torch.subtract(
+                            torch.add(torch.exp(one), 
+                                    torch.sin(torch.mul(y, torch.mul(torch.exp(torch.log(y)), x)))),
+                            torch.exp(torch.exp(one)))),
+                    torch.add(torch.exp(exp_sub), sub_one)),
+                half_mul),
+            half_half)
+        
+        losses.append(result)
     
-    std_input = torch.subtract(torch.subtract(exp_zero_sub, log_y_sub3), zero)
-    relu_std = torch.relu(torch.std(std_input))
-    
-    exp_half_mul = torch.mul(torch.div(half, one), torch.exp(half))
-    exp_div = torch.div(exp_half_mul, one)
-    exp_add = torch.add(torch.exp(exp_div), relu_std)
-    exp_sub = torch.subtract(exp_add, torch.exp(torch.exp(one)))
-    
-    # Second part
-    inner_sigmoid2 = torch.mul(torch.mul(half, x), torch.mul(torch.mul(torch.add(y, one), torch.log(y)), x))
-    log_y_sub4 = torch.subtract(torch.log(y), torch.sigmoid(inner_sigmoid2))
-    x_sub = torch.subtract(x, log_y_sub4)
-    
-    inner_cos2 = torch.subtract(torch.log(y), torch.div(x, torch.exp(torch.sin(half))))
-    log_y_sub5 = torch.subtract(torch.log(y), torch.cos(inner_cos2))
-    log_y_sub6 = torch.subtract(torch.log(y), log_y_sub5)
-    
-    std_input2 = torch.subtract(torch.subtract(x_sub, log_y_sub6), zero)
-    tanh_std = torch.tanh(torch.std(std_input2))
-    
-    cube_exp = torch.exp(torch.sin(half))
-    cube_cube = torch.pow(torch.pow(cube_exp, 3), 3)
-    square_cube = torch.pow(cube_cube, 2)
-    
-    exp_half_mul2 = torch.mul(torch.div(half, one), torch.exp(half))
-    exp_div2 = torch.div(exp_half_mul2, one)
-    exp_add2 = torch.add(torch.exp(exp_div2), square_cube)
-    
-    square_cube2 = torch.pow(torch.pow(torch.exp(torch.sin(half)), 3), 2)
-    one_add = torch.add(one, square_cube2)
-    
-    mul_result = torch.mul(exp_add2, one_add)
-    log_mul = torch.log(mul_result)
-    log_add = torch.add(log_mul, tanh_std)
-    sub_one = torch.subtract(log_add, one)
-    
-    # Final parts
-    cube_half = torch.pow(torch.pow(half, 3), 3)
-    square_cube_half = torch.pow(cube_half, 2)
-    one_add2 = torch.add(one, square_cube_half)
-    
-    mul_chain = torch.mul(y, one_add2)
-    mul_chain = torch.mul(mul_chain, one_add2)
-    mul_chain = torch.mul(mul_chain, half)
-    half_mul = torch.mul(half, mul_chain)
-    
-    half_half = torch.mul(half, half)
-    
-    # Final subtractions
-    result = torch.subtract(
-        torch.subtract(
-            torch.add(
-                torch.exp(
-                    torch.subtract(
-                        torch.add(torch.exp(one), 
-                                 torch.sin(torch.mul(y, torch.mul(torch.exp(torch.log(y)), x)))),
-                        torch.exp(torch.exp(one)))),
-                torch.add(torch.exp(exp_sub), sub_one)),
-            half_mul),
-        half_half)
-    
-    return result
+    return torch.cat(losses).mean()
 
 @dataclass
 class GPTConfig:
